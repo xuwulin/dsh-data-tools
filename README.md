@@ -101,7 +101,11 @@ Configuration lives in the `data-tools` settings namespace, edited live from the
 
 ## Safety contract
 
-This plugin is read-only by design, with defense in depth:
+> ⚠️ **The plugin is read-only — the agent is not.** The `db_*` tools above refuse `INSERT/UPDATE/DELETE` and everything else that mutates data. But the AI agent you are talking to can also run arbitrary scripts: given the connection details configured in this section (`host`/`port`/`user`/password), it can connect to the same MySQL server directly (e.g. with a `mysql2` script or the `mysql` CLI) and perform writes, bypassing the plugin entirely. The plugin neither can nor will prevent that.
+>
+> **The only real write barrier is the database account**: give the agent a MySQL user with `SELECT`-only privileges. With such an account, neither the plugin nor any script can write.
+
+Read-only by design, with defense in depth:
 
 1. **Primary boundary — the database account**: give the agent a MySQL user with read-only privileges (`SELECT` only). Nothing in the plugin bypasses the account.
 2. **Statement guard**: only `SELECT / SHOW / DESCRIBE / EXPLAIN / WITH` pass; `INSERT/UPDATE/DELETE/DROP/ALTER/...`, `FOR UPDATE / FOR SHARE`, `INTO OUTFILE/DUMPFILE`, and multi-statement strings are refused.

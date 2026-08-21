@@ -101,6 +101,10 @@ dsh plugin --profile web add @xwl12/dsh-data-tools@latest
 
 ## 安全约定
 
+> ⚠️ **插件只读，不等于 Agent 只读。** 上面的 `db_*` 工具会拒绝 `INSERT/UPDATE/DELETE` 及一切写操作——但和你对话的 AI Agent 还能执行任意脚本：只要拿到本页配置的连接信息（`host`/`port`/`user`/密码），它就能绕过插件、直连同一台 MySQL（例如写个 `mysql2` 脚本或用 `mysql` 命令行客户端）执行写操作。插件既不能也不打算阻止这种行为。
+>
+> **真正的写屏障只有数据库账号**：给 Agent 配一个仅 `SELECT` 权限的 MySQL 账号。有了它，无论插件还是任何脚本都写不进去。
+
 这个插件天生只读，采用纵深防御：
 
 1. **第一道防线——数据库账号**：给 Agent 一个只读权限的 MySQL 账号（仅 `SELECT`）。插件不会绕过账号的任何限制。
