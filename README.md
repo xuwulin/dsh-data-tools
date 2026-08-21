@@ -1,12 +1,12 @@
 # dsh-data-tools
 
-English | [中文](README.zh.md)
+English | [中文](README.zh.md) | [Development](DEVELOP.md)
 
 Read-only MySQL tooling for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): let the agent **see the database before it writes code** — list connections, discover table schemas, and run guarded SELECT queries.
 
-## Why
+## Background
 
-AI coding assistants cannot query your company database by default: no table structures, no sample data, no way to verify SQL. This plugin gives the agent a safe, read-only window into MySQL so it can write schema-accurate queries and code.
+AI coding assistants cannot query your database by default: no table structures, no sample data, no way to verify SQL. This plugin gives the agent a safe, read-only window into MySQL so it can write schema-accurate queries and code.
 
 ## Tools
 
@@ -24,54 +24,80 @@ AI coding assistants cannot query your company database by default: no table str
 dsh plugin --profile web add @xwl12/dsh-data-tools@latest
 ```
 
-Or install a local checkout while developing:
+> Building the plugin from source or installing a local checkout? See [DEVELOP.md](DEVELOP.md).
 
-```sh
-pnpm build
-dsh plugin --profile demo add ./path/to/dsh-data-tools
-dsh --profile demo --dump-config   # verify the layer
-dsh --profile demo                 # boot and try it
+## Configuration
+
+Configuration lives in the `data-tools` settings namespace, edited live from the web GUI: **Settings → Data sources**. The page's **Connections (JSON)** field holds the `connections` array — one JSON object per database connection:
+
+```json
+[
+  {
+    "name": "dev",
+    "host": "10.0.0.10",
+    "port": 3306,
+    "database": "your_db",
+    "user": "readonly_user",
+    "passwordRef": "DEV_DB_PASSWORD"
+  }
+]
 ```
 
-## Config
+**Top-level options**
 
-The plugin's default `cordis.patch.yml` (a bundle-layer insert, applied automatically on install; point your real connections in with the `--patch` override below):
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `connections` | array of connection objects | — (required) | Named MySQL connections the `db_*` tools operate on. |
+| `defaultMaxRows` | number | `100` | Result row cap applied when a connection sets none. |
+| `defaultTimeoutMs` | number | `10000` | Statement timeout in ms applied when a connection sets none. |
 
-```yaml
-- insert:
-    - id: data-tools
-      name: '@xwl12/dsh-data-tools'
-      config:
-        defaultMaxRows: 100
-        defaultTimeoutMs: 10000
-        connections:
-          - name: dev
-            host: 10.0.0.10
-            port: 3306
-            database: your_db
-            user: readonly_user
-            passwordRef: DEV_DB_PASSWORD
+**Per-connection options** (each element of `connections`)
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` | string | — (required) | Unique connection name; referenced by the `connection` argument of every `db_*` tool. |
+| `kind` | `'mysql'` | `'mysql'` | Backend discriminator. Only `mysql` is implemented today; unknown kinds are rejected at config validation. |
+| `host` | string | — (required) | MySQL server host. |
+| `port` | number | `3306` | MySQL server port. |
+| `database` | string | (none) | Optional default database. Omit it (or leave `null`/empty) to let the agent see every database the account can access via `db_list_databases`; the table tools then need a `database` argument, or qualify `database.table` in `db_query`. |
+| `user` | string | — (required) | MySQL account name — use a read-only user. |
+| `passwordRef` | string | (none) | Credential reference: an environment variable name resolved per operation through the dsh credentials seam (env or the dsh `.env` file). Preferred over `password` — the secret never sits in config or session logs. |
+| `password` | string | (none) | Plaintext password fallback for throwaway local setups. Marked `role('secret')`: redacted on the wire and never returned to configuration surfaces (write-only in the settings UI). |
+| `charset` | string | `'utf8mb4'` | Connection charset. |
+| `maxRows` | number | falls back to `defaultMaxRows` | Per-connection result row cap. |
+| `timeoutMs` | number | falls back to `defaultTimeoutMs` | Per-connection statement timeout in ms. |
+
+**Full example** (every field, settings-page JSON form):
+
+```json
+[
+  {
+    "name": "dev",
+    "kind": "mysql",
+    "host": "10.0.0.10",
+    "port": 3306,
+    "database": "your_db",
+    "user": "readonly_user",
+    "passwordRef": "DEV_DB_PASSWORD",
+    "charset": "utf8mb4",
+    "maxRows": 50,
+    "timeoutMs": 5000
+  },
+  {
+    "name": "analytics",
+    "host": "10.0.0.11",
+    "port": 3306,
+    "user": "analytics_ro",
+    "passwordRef": "ANALYTICS_DB_PASSWORD"
+  }
+]
 ```
 
-- `passwordRef` is preferred: it names an environment variable resolved per operation through the dsh credentials seam (env or the dsh `.env` file), so secrets never sit in config or the session log.
-- `password` is a plaintext fallback for throwaway local setups only.
-- `database` is optional: omit it to let the agent see every database the account can access (`db_list_databases`); tools then take a `database` argument, or qualify `database.table` in `db_query`.
-- Per-connection `maxRows` / `timeoutMs` override `defaultMaxRows` / `defaultTimeoutMs`.
-- **Live user settings**: the plugin registers a `data-tools` settings namespace — the patch-layer config above is the composition *base*; user overrides land in the dsh settings document (`settings.yaml` under `$DSH_HOME`) and apply live, so a saved change is immediately visible to the tools. Use the settings document for day-to-day edits and the patch layer for the deployment baseline. `password` is a `role('secret')` field: it is redacted on the wire and never returned to configuration surfaces.
-- **Settings page**: the package also ships a browser half (`lib/client.js`) that contributes a **Data sources** page to the web GUI's Settings navigation, below the third-party "sidebar cards" entry. Editing there writes the same `data-tools` settings namespace. It appears only while the plugin is installed (and after a dsh restart — see Develop).
-- **Overriding the default connection via `--patch`**: once installed as a bundle, the plugin's own `cordis.patch.yml` already inserts the `data-tools` row. When you pass an overlay file with `--patch` (e.g. a dev-only `dev.patch.yml`), **do not `insert` the same id again** — the loader refuses to boot with `duplicate loader entry id: data-tools`. Use an id-targeted override instead; the patch replaces the row's `config` wholesale, so include the full config:
-  ```yaml
-  - id: data-tools
-    config:
-      defaultMaxRows: 100
-      defaultTimeoutMs: 10000
-      connections:
-        - name: dev
-          host: 10.0.0.10
-          port: 3306
-          user: readonly_user
-          passwordRef: DEV_DB_PASSWORD
-  ```
+**Where configuration can live** — three layers, later ones win:
+
+1. **Bundle default** — the package's own `cordis.patch.yml` (applied automatically on install; the composition base). The file itself is a developer concern — see [DEVELOP.md](DEVELOP.md).
+2. **Patch overlays** — the profile's `cordis.patch.yml` or `--patch` files: id-targeted overrides of the `data-tools` row (never `insert` a second row with the same id).
+3. **Settings document** — `settings.yaml` under `$DSH_HOME`, edited via the **Data sources** settings page (or the settings file directly). Applies live — no restart needed.
 
 ## Safety contract
 
@@ -85,39 +111,3 @@ This plugin is read-only by design, with defense in depth:
 6. **Privilege-bounded discovery**: `db_list_databases` shows only the databases the read-only account can access — "all databases" is bounded by the account's grants.
 
 Known limits: the statement guard is keyword-based, not a parser — treat it as defense in depth, not a sandbox. MariaDB lacks `MAX_EXECUTION_TIME` (timeout degrades gracefully). V1 is MySQL-only.
-
-## Develop
-
-Standalone project — keep it outside the harness monorepo (or `git init` it separately):
-
-```sh
-npm install          # or pnpm install
-npm run build        # tsc (backend lib/) + tsc (client types) + tsdown (lib/client.js)
-npm run typecheck
-```
-
-`npm run build` produces both halves: the Node half (`lib/index.js`, tools + settings registration) and the browser half (`lib/client.js`, the Settings page). Install the built package into a profile and both load together:
-
-```sh
-dsh plugin --profile web add ./path/to/dsh-data-tools
-```
-
-Then ask the agent, e.g.: *"Use db_connections, then db_list_tables and db_table_schema on the `orders` table, then write a query joining it to `customers`."*
-
-Notes:
-
-- **Restart dsh after installing** (or after touching `exports` / `dsh.client` in `package.json`): the browser half is discovered at boot and the verdict is cached for the process lifetime — a running instance will not pick up a newly added client plugin.
-- **Version alignment**: the plugin pins `@deepseek-ai/dsh-settings`, `dsh-tools`, and `dsh-credentials` at `0.1.1-rc.1` to match the harness checkout it targets. If you point it at a harness with different rc versions, sync the peer/dev dependencies first — a mismatched copy loaded from the plugin's own `node_modules` can fail at runtime.
-
-## Publish
-
-```sh
-pnpm pack           # inspect the tarball first
-pnpm publish        # --access public for scoped names, or set publishConfig.access
-```
-
-Users install from npm, or from git with an `allowBuilds` entry in the profile's `pnpm-workspace.yaml` (the `prepare` script builds from source).
-
-## Roadmap
-
-- V2: `db_explain`, schema keyword search (`db_find`), SQL Server / PostgreSQL drivers, write mode behind `ctx.approval`.
