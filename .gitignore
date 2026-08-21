@@ -2,3 +2,4 @@ node_modules/
 lib/
 *.tgz
 dev.patch.yml
+RELEASE.md
