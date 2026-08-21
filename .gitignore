@@ -3,3 +3,4 @@ lib/
 *.tgz
 dev.patch.yml
 RELEASE.md
+.idea/
