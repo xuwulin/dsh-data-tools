@@ -1,0 +1,16 @@
+# dsh-data-tools bundle patch layer.
+# Adjust the connection below to your database. Prefer passwordRef (resolved from env / dsh .env through
+# the credentials seam) over a plaintext password.
+- insert:
+    - id: data-tools
+      name: '@xwl12/dsh-data-tools'
+      config:
+        defaultMaxRows: 100
+        defaultTimeoutMs: 10000
+        connections:
+          - name: dev
+            host: localhost
+            port: 3306
+            database:
+            user: root
+            passwordRef: DEV_DB_PASSWORD
