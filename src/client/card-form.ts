@@ -31,6 +31,14 @@ export interface CardFieldSpec {
    * value this field accepts — which blocks the save rather than discarding it.
    */
   parse: (text: string) => FieldWrite | undefined
+  /**
+   * Reduce a typed value to the shape the Host serves back to the client.
+   * The Host redacts `role('secret')` fields before returning a section, so a
+   * write carrying secrets can only be verified against the same redacted
+   * shape; without this hook every save containing a secret reports a failure
+   * even when the write landed.
+   */
+  redact?: (value: unknown) => unknown
 }
 
 /** One field as the page's control renders it. */
@@ -281,7 +289,9 @@ export class CardForm<T> {
 
   private async store(field: string, value: unknown): Promise<boolean> {
     await this.scope.set(field, value)
-    return jsonEquals(this.userLayer()?.[field], value)
+    const redact = this.spec(field).redact
+    const expected = redact === undefined ? value : redact(value)
+    return jsonEquals(this.userLayer()?.[field], expected)
   }
 
   private stage(field: string, edit: StagedEdit): void {

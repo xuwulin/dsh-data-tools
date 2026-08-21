@@ -63,6 +63,11 @@ async function withConnection(
     password,
     charset: conn.charset,
     connectTimeout: conn.timeoutMs,
+    // BIGINT values (ids, provider_uid, user_id, ...) routinely exceed
+    // Number.MAX_SAFE_INTEGER; return them as strings so results display
+    // exactly. Without this, mysql2 parses them as lossy JS numbers.
+    supportBigNumbers: true,
+    bigNumberStrings: true,
   })
   try {
     try {

@@ -67,6 +67,14 @@ export function jsonArrayField(field: string): CardFieldSpec {
       if (!Array.isArray(parsed) || !parsed.every(isRecord)) return undefined
       return { kind: 'set', value: parsed }
     },
+    // The Host redacts connection `password` (role('secret')) before serving
+    // the user layer back to the client, so the save read-back is verified
+    // against the same redacted shape — `password` stripped from every entry.
+    redact: (value) => (value as unknown[]).map((entry) => {
+      if (!isRecord(entry)) return entry
+      const { password: _password, ...rest } = entry
+      return rest
+    }),
   }
 }
 
