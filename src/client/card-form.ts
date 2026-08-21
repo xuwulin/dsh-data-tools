@@ -67,6 +67,8 @@ export interface CardShell {
   invalid: boolean
   /** Whether a save is crossing the wire. */
   saving: boolean
+  /** Whether the last save landed; cleared by the next edit, reset, discard, or explicit clear. */
+  saved: boolean
   /** Whether the last save did not land as staged; cleared by the next edit or save. */
   failed: boolean
 }
@@ -81,6 +83,8 @@ export interface CardActions {
   save: () => void
   /** Drop every staged edit. */
   discard: () => void
+  /** Clear the success flag once the UI has shown it (e.g. after a timeout). */
+  clearSaved: () => void
 }
 
 /** One field's staged edit. */
@@ -152,6 +156,7 @@ export class CardForm<T> {
   private readonly staged = new Map<string, StagedEdit>()
   private readonly listeners = new Set<() => void>()
   private saving = false
+  private saved = false
   private failed = false
 
   /**
@@ -190,6 +195,7 @@ export class CardForm<T> {
       dirty: plan.length > 0,
       invalid: plan.some(item => item.run === undefined),
       saving: this.saving,
+      saved: this.saved,
       failed: this.failed,
     }
   }
@@ -228,6 +234,12 @@ export class CardForm<T> {
         if (this.staged.size === 0 && !this.failed) return
         this.staged.clear()
         this.failed = false
+        this.saved = false
+        this.publish()
+      },
+      clearSaved: () => {
+        if (!this.saved) return
+        this.saved = false
         this.publish()
       },
     }
@@ -256,6 +268,7 @@ export class CardForm<T> {
     if (landed) this.staged.clear()
     this.saving = false
     this.failed = !landed
+    this.saved = landed
     this.publish()
   }
 
@@ -297,6 +310,7 @@ export class CardForm<T> {
   private stage(field: string, edit: StagedEdit): void {
     this.staged.set(field, edit)
     this.failed = false
+    this.saved = false
     this.publish()
   }
 

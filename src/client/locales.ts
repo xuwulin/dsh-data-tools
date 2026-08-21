@@ -6,7 +6,7 @@ export type DataToolsSettingsLocaleKey =
   | 'dataToolsMaxRows' | 'dataToolsMaxRowsHint'
   | 'dataToolsTimeoutMs' | 'dataToolsTimeoutMsHint'
   | 'dataToolsConnections' | 'dataToolsConnectionsHint' | 'invalidJson'
-  | 'overridden' | 'reset' | 'save' | 'saving' | 'discard' | 'saveFailed' | 'invalidNumber'
+  | 'overridden' | 'reset' | 'save' | 'saving' | 'saved' | 'discard' | 'saveFailed' | 'invalidNumber'
 
 /** English copy. */
 export const en: Record<DataToolsSettingsLocaleKey, string> = {
@@ -24,6 +24,7 @@ export const en: Record<DataToolsSettingsLocaleKey, string> = {
   reset: 'Reset to default',
   save: 'Save',
   saving: 'Saving…',
+  saved: 'Saved',
   discard: 'Discard',
   saveFailed: 'The deployment did not accept these values; they were left for you to correct.',
   invalidNumber: 'Enter a number, or leave blank to use the default.',
@@ -45,6 +46,7 @@ export const zh: Record<DataToolsSettingsLocaleKey, string> = {
   reset: '恢复默认',
   save: '保存',
   saving: '保存中…',
+  saved: '已保存',
   discard: '放弃修改',
   saveFailed: '本部署没有接受这些值，已保留供你修改。',
   invalidNumber: '请填数字；留空表示使用默认值。',

@@ -1,6 +1,7 @@
 /** The data-tools settings page: read-only database connections the agent may query. */
 
 import type { CSSProperties } from 'react'
+import { useEffect } from 'react'
 import { JsonField, ValueField } from './fields.tsx'
 import type { DataToolsSettingsFace, DataToolsSettingsState } from './data-tools-settings-controller.ts'
 import type { LocaleText } from './host.ts'
@@ -58,6 +59,15 @@ const failedStyle: CSSProperties = {
   color: 'var(--dsw-alias-label-error)',
 }
 
+const savedStyle: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  margin: 0,
+  fontSize: 12,
+  lineHeight: 1.5,
+  color: 'var(--dsw-alias-label-success, #2e9e44)',
+}
+
 const buttonBase: CSSProperties = {
   appearance: 'none',
   border: '1px solid transparent',
@@ -92,6 +102,12 @@ export function DataToolsSettingsSection(props: DataToolsSettingsSectionProps) {
   const state = props.useDataToolsSettings(snapshot => snapshot)
   const disabled = !state.writable
   const blocked = !state.dirty || state.invalid || state.saving
+  // A landed save reports success; the banner clears itself after a moment.
+  useEffect(() => {
+    if (!state.saved) return
+    const timer = setTimeout(() => { props.clearSaved() }, 3000)
+    return () => { clearTimeout(timer) }
+  }, [state.saved, props.clearSaved])
   return (
     <div style={sectionStyle}>
       <h2 style={headingStyle}>{t('dataToolsTitle')}</h2>
@@ -139,7 +155,11 @@ export function DataToolsSettingsSection(props: DataToolsSettingsSectionProps) {
               onReset={() => { props.resetField('connections') }}
             />
             <div style={footerStyle}>
-              {state.failed ? <p style={failedStyle} role="status">{t('saveFailed')}</p> : null}
+              {state.failed
+                ? <p style={failedStyle} role="status">{t('saveFailed')}</p>
+                : state.saved
+                  ? <p style={savedStyle} role="status">{t('saved')}</p>
+                  : null}
               <button
                 type="button"
                 style={discardButtonStyle}
