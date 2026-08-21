@@ -1,6 +1,6 @@
 {
   "name": "@xwl12/dsh-data-tools",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Read-only MySQL tooling for DeepSeek Harness: connection introspection, schema discovery, and guarded SELECT queries so the agent can see the database before writing code.",
   "type": "module",
   "main": "lib/index.js",
