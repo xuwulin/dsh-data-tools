@@ -35,7 +35,7 @@ dsh --profile demo                 # 启动并试用
 
 ## 配置
 
-示例 `cordis.patch.yml`（改成你的开发库）：
+插件默认的 `cordis.patch.yml`（bundle 层，安装即自动生效；真实连接请用下面的 `--patch` 覆盖写法）：
 
 ```yaml
 - insert:
@@ -58,7 +58,20 @@ dsh --profile demo                 # 启动并试用
 - `database` 可选：不填时 Agent 可以查看该账号能访问的所有数据库（用 `db_list_databases`），表工具需要传 `database` 参数，或在 `db_query` 里用 `数据库.表` 全限定名。
 - 每个连接可以单独用 `maxRows` / `timeoutMs` 覆盖 `defaultMaxRows` / `defaultTimeoutMs`。
 - **实时用户设置**：插件注册了 `data-tools` settings 命名空间——上面的 patch 层配置是组合 *base*；用户的覆盖写入 dsh 设置文档（`$DSH_HOME` 下的 `settings.yaml`）并实时生效，保存后工具立刻可见。日常修改请编辑设置文档，patch 层留给部署基线。`password` 是 `role('secret')` 字段：在传输层脱敏，绝不会回传给配置界面。
-- **设置页**：包同时带有浏览器一半（`lib/client.js`），会在 Web GUI 的设置导航里、第三方"侧边卡片"条目下方增加一个"数据源"页面，编辑的是同一个 `data-tools` settings 命名空间。只有安装了插件才会显示。
+- **设置页**：包同时带有浏览器一半（`lib/client.js`），会在 Web GUI 的设置导航里、第三方"侧边卡片"条目下方增加一个"数据源"页面，编辑的是同一个 `data-tools` settings 命名空间。只有安装了插件才会显示（且需要重启 dsh，见"开发"）。
+- **用 `--patch` 覆盖默认连接**：插件作为 bundle 安装后，它自带的 `cordis.patch.yml` 已经插入了 `data-tools` 这一行。如果再用 `--patch` 传覆盖文件（比如开发专用的 `dev.patch.yml`），**不要重复 `insert` 同名条目**——loader 会以 `duplicate loader entry id: data-tools` 拒绝启动。正确写法是 id 定向覆盖；补丁会**整体替换**该行的 `config`，所以请带上完整配置：
+  ```yaml
+  - id: data-tools
+    config:
+      defaultMaxRows: 100
+      defaultTimeoutMs: 10000
+      connections:
+        - name: dev
+          host: 10.0.0.10
+          port: 3306
+          user: readonly_user
+          passwordRef: DEV_DB_PASSWORD
+  ```
 
 ## 安全约定
 
@@ -90,6 +103,11 @@ dsh plugin --profile web add ./path/to/dsh-data-tools
 ```
 
 然后按上文装进一个 profile，再让 Agent 试，例如：*"用 db_connections，再用 db_list_tables 和 db_table_schema 看 `orders` 表，然后写一条和 `customers` 联表的查询。"*
+
+注意事项：
+
+- **安装后需要重启 dsh**（改动 `exports` / `dsh.client` 后也一样）：浏览器半是在启动时发现的，且发现结果在进程生命周期内缓存——运行中的实例不会加载新加的客户端插件。
+- **版本对齐**：插件把 `@deepseek-ai/dsh-settings`、`dsh-tools`、`dsh-credentials` 锁定在 `0.1.1-rc.1`，与目标 harness 一致。装到其它 rc 版本的 harness 时请先同步 peer/dev 依赖——版本不一致时插件会从自己的 `node_modules` 加载不匹配的副本，可能在运行时失败。
 
 ## 发布
 

@@ -35,7 +35,7 @@ dsh --profile demo                 # boot and try it
 
 ## Config
 
-Example `cordis.patch.yml` (adjust to your dev database):
+The plugin's default `cordis.patch.yml` (a bundle-layer insert, applied automatically on install; point your real connections in with the `--patch` override below):
 
 ```yaml
 - insert:
@@ -58,7 +58,20 @@ Example `cordis.patch.yml` (adjust to your dev database):
 - `database` is optional: omit it to let the agent see every database the account can access (`db_list_databases`); tools then take a `database` argument, or qualify `database.table` in `db_query`.
 - Per-connection `maxRows` / `timeoutMs` override `defaultMaxRows` / `defaultTimeoutMs`.
 - **Live user settings**: the plugin registers a `data-tools` settings namespace — the patch-layer config above is the composition *base*; user overrides land in the dsh settings document (`settings.yaml` under `$DSH_HOME`) and apply live, so a saved change is immediately visible to the tools. Use the settings document for day-to-day edits and the patch layer for the deployment baseline. `password` is a `role('secret')` field: it is redacted on the wire and never returned to configuration surfaces.
-- **Settings page**: the package also ships a browser half (`lib/client.js`) that contributes a **Data sources** page to the web GUI's Settings navigation, below the third-party "sidebar cards" entry. Editing there writes the same `data-tools` settings namespace. It appears only while the plugin is installed.
+- **Settings page**: the package also ships a browser half (`lib/client.js`) that contributes a **Data sources** page to the web GUI's Settings navigation, below the third-party "sidebar cards" entry. Editing there writes the same `data-tools` settings namespace. It appears only while the plugin is installed (and after a dsh restart — see Develop).
+- **Overriding the default connection via `--patch`**: once installed as a bundle, the plugin's own `cordis.patch.yml` already inserts the `data-tools` row. When you pass an overlay file with `--patch` (e.g. a dev-only `dev.patch.yml`), **do not `insert` the same id again** — the loader refuses to boot with `duplicate loader entry id: data-tools`. Use an id-targeted override instead; the patch replaces the row's `config` wholesale, so include the full config:
+  ```yaml
+  - id: data-tools
+    config:
+      defaultMaxRows: 100
+      defaultTimeoutMs: 10000
+      connections:
+        - name: dev
+          host: 10.0.0.10
+          port: 3306
+          user: readonly_user
+          passwordRef: DEV_DB_PASSWORD
+  ```
 
 ## Safety contract
 
@@ -90,6 +103,11 @@ dsh plugin --profile web add ./path/to/dsh-data-tools
 ```
 
 Then ask the agent, e.g.: *"Use db_connections, then db_list_tables and db_table_schema on the `orders` table, then write a query joining it to `customers`."*
+
+Notes:
+
+- **Restart dsh after installing** (or after touching `exports` / `dsh.client` in `package.json`): the browser half is discovered at boot and the verdict is cached for the process lifetime — a running instance will not pick up a newly added client plugin.
+- **Version alignment**: the plugin pins `@deepseek-ai/dsh-settings`, `dsh-tools`, and `dsh-credentials` at `0.1.1-rc.1` to match the harness checkout it targets. If you point it at a harness with different rc versions, sync the peer/dev dependencies first — a mismatched copy loaded from the plugin's own `node_modules` can fail at runtime.
 
 ## Publish
 
