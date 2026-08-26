@@ -89,7 +89,10 @@ export function registerSqlTools(ctx: Context, toolkit: SqlToolkit): void {
     },
     async execute(args) {
       const conn = requireConnection(args.connection)
-      const schema = args.database ?? conn.database
+      // The dialect's listing unit: MySQL names a database, PostgreSQL a
+      // schema — the connection's default `schema` (postgres) or `database`
+      // (mysql) fills in when the caller passes none.
+      const schema = args.database ?? conn.schema ?? conn.database
       if (schema === undefined) {
         throw new Error(`connection "${conn.name}" has no default database — pass the \`database\` argument`)
       }
@@ -115,7 +118,8 @@ export function registerSqlTools(ctx: Context, toolkit: SqlToolkit): void {
     },
     async execute(args) {
       const conn = requireConnection(args.connection)
-      const schema = args.database ?? conn.database
+      // See listTables: the listing unit is a MySQL database or a PostgreSQL schema.
+      const schema = args.database ?? conn.schema ?? conn.database
       if (schema === undefined) {
         throw new Error(`connection "${conn.name}" has no default database — pass the \`database\` argument`)
       }

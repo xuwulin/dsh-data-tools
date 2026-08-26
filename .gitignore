@@ -4,3 +4,5 @@ lib/
 dev.patch.yml
 RELEASE.md
 .idea/
+# Local-only diagnostic that may be pointed at real configs; never publish.
+scripts/diag-schema.mjs

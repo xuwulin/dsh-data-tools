@@ -17,30 +17,42 @@ export interface BaseConnection {
   timeoutMs?: number
 }
 
-/** One named MySQL connection as configured by the user. */
-export interface MysqlConnection extends BaseConnection {
-  /** Backend discriminator; defaults to 'mysql'. Unknown kinds are rejected at config validation. */
-  kind?: 'mysql'
+/** Every backend kind the plugin can open. Extend this union and the Config schema when a new backend lands. */
+export type ConnectionKind = 'mysql' | 'postgres' | 'redis' | 'elasticsearch'
+
+/**
+ * One connection as configured by the user: a flat superset of every kind's
+ * fields. The Config schema stays ONE flat object (not a discriminated union
+ * per kind) because the settings host's secret redaction walks only
+ * object/dict/array containers — a `role('secret')` field buried in a union
+ * branch is served back verbatim, which breaks save verification and leaks the
+ * secret to the settings page. Per-kind validation and defaults (ports,
+ * charset, ssl, schema) therefore live in `resolveConnections`, not the schema.
+ */
+export interface FlatConnection extends BaseConnection {
+  /** Backend discriminator; defaults to 'mysql' at validation, always present in resolved configs. */
+  kind?: ConnectionKind
   host: string
-  port: number
-  /** Optional default database. Omit it to let the agent see every database the account can access. */
-  database?: string
-  user: string
+  /** Server port; per-kind default when omitted (3306 mysql, 5432 postgres, 6379 redis, 9200 elasticsearch). */
+  port?: number
+  /** mysql/postgres: database name (string). redis: logical database index (number). */
+  database?: string | number
+  /** Account name: required for mysql/postgres, optional for redis (ACL) / elasticsearch (basic-auth). */
+  user?: string
   /** Credential reference (env var name) resolved per operation through ctx.credentials. Preferred over `password`. */
   passwordRef?: string
   /** Plaintext password fallback for throwaway local setups. Use `passwordRef` for anything shared. */
   password?: string
+  /** Connection charset (mysql only; other kinds ignore it). */
   charset?: string
+  /** TLS for the connection (postgres / redis / elasticsearch; accepts self-signed certificates). */
+  ssl?: boolean
+  /** Default schema (namespace) for the table tools (postgres; defaults to `public`). */
+  schema?: string
 }
 
-/**
- * Every connection kind the plugin can open. Extend this union and the Config
- * schema in index.ts when a new backend lands.
- */
-export type ConnectionConfig = MysqlConnection
-
 export interface Config {
-  connections: ConnectionConfig[]
+  connections: FlatConnection[]
   defaultMaxRows: number
   defaultTimeoutMs: number
 }
@@ -61,6 +73,52 @@ export interface ResolvedSqlConnection {
   passwordRef?: string
   password?: string
   charset: string
+  /** TLS for the connection (postgres). */
+  ssl?: boolean
+  /** Default schema for table tools (postgres; resolved to 'public' when unset). */
+  schema?: string
+  maxRows: number
+  timeoutMs: number
+}
+
+/**
+ * A Redis connection with every tunable resolved to its effective value,
+ * handed to the redis_* tools.
+ */
+export interface ResolvedRedisConnection {
+  /** Backend discriminator. */
+  kind: 'redis'
+  name: string
+  host: string
+  port: number
+  /** Redis logical database index (default 0). */
+  database: number
+  /** Optional ACL username (Redis 6+). */
+  user?: string
+  passwordRef?: string
+  password?: string
+  ssl: boolean
+  /** Result cap: keys/items per call; falls back to `defaultMaxRows`. */
+  maxRows: number
+  timeoutMs: number
+}
+
+/**
+ * An Elasticsearch connection with every tunable resolved to its effective
+ * value, handed to the es_* tools.
+ */
+export interface ResolvedElasticsearchConnection {
+  /** Backend discriminator. */
+  kind: 'elasticsearch'
+  name: string
+  host: string
+  port: number
+  /** Optional basic-auth username. */
+  user?: string
+  passwordRef?: string
+  password?: string
+  ssl: boolean
+  /** Result cap: hits/fields per call; falls back to `defaultMaxRows`. */
   maxRows: number
   timeoutMs: number
 }

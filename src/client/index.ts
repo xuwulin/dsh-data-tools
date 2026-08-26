@@ -14,6 +14,7 @@ import { DataToolsSettingsSection } from './DataToolsSettingsSection.tsx'
 import { DATA_TOOLS_NS, DataToolsSettingsController } from './data-tools-settings-controller.ts'
 import type { ClientContext } from './host.ts'
 import { en, zh } from './locales.ts'
+import { NAV_ICON_CSS, registerSettingsNavIcon } from './settings-nav-icon.ts'
 
 /** Locale namespace owned by this browser half. */
 const NS = 'data-tools'
@@ -39,4 +40,20 @@ export function apply(ctx: ClientContext): void {
     locale: NS,
     inject: () => dataTools.inject(),
   }, DataToolsSettingsSection))
+
+  // The settings shell draws a generic gear for every external section; mark
+  // this plugin's own nav row (matched by its localized label) so the bundled
+  // CSS can paint the database glyph over the shell gear — plugin-side only,
+  // no harness change. Both effects are HMR-safe (disposers clean up).
+  ctx.effect(
+    () => registerSettingsNavIcon(() => t('dataToolsTitle')),
+    'data-tools: settings nav icon marker',
+  )
+  ctx.effect(() => {
+    const style = document.createElement('style')
+    style.setAttribute('data-dsh-data-tools-settings-nav-style', '')
+    style.textContent = NAV_ICON_CSS
+    document.head.appendChild(style)
+    return () => { style.remove() }
+  }, 'data-tools: settings nav icon css')
 }

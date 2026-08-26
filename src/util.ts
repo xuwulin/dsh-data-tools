@@ -6,7 +6,6 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import type { ResolvedSqlConnection } from './types.js'
 
 /** Serialize one cell value for the text table. */
 export function textOf(value: unknown): string {
@@ -37,8 +36,14 @@ export function formatRows(cols: string[], rows: readonly Record<string, unknown
   return [header, sep, ...rows.map(render)].join('\n')
 }
 
+/** The credential fields any resolved connection may carry (sql and redis alike). */
+export interface ConnectionCredentials {
+  passwordRef?: string
+  password?: string
+}
+
 /** Resolve the effective password for one operation: credential ref wins, then plaintext. */
-export async function resolvePassword(ctx: Context, conn: ResolvedSqlConnection): Promise<string | undefined> {
+export async function resolvePassword(ctx: Context, conn: ConnectionCredentials): Promise<string | undefined> {
   if (conn.passwordRef !== undefined) {
     const resolved = await ctx.credentials.resolve(credentialRef(conn.passwordRef))
     if (resolved === undefined) {
