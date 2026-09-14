@@ -24,7 +24,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+// Type-only: pulls in the `settings` service augmentation on Context.
+import type {} from '@deepseek-ai/dsh-settings'
 import type {
   Config as PluginConfig, FlatConnection, ResolvedElasticsearchConnection, ResolvedRedisConnection, ResolvedSqlConnection,
 } from './types.js'
@@ -50,7 +51,7 @@ const SUPPORTED_KINDS: readonly string[] = [
 ]
 
 /** Settings namespace carrying this plugin's user-editable section. */
-export const DATA_TOOLS_SETTINGS_NAMESPACE = settingsNamespace('data-tools')
+export const DATA_TOOLS_SETTINGS_NAMESPACE = 'data-tools'
 
 /** Connection object schema for one backend kind (discriminated on `kind`). */
 /**
@@ -221,15 +222,19 @@ export function apply(ctx: Context, config: PluginConfig) {
 
   // The patch-layer entry config is the composition `base`; user overrides
   // land in the settings document and apply live. Without a settings service
-  // the entry config stays authoritative (current stays the entry thunk).
+  // the entry config stays authoritative (current stays the entry thunk), so
+  // the section rides a scoped inject rather than a hard dependency: a host
+  // with no settings provider simply never runs the callback.
   let current: () => PluginConfig = () => config
-  installSettingsSection(ctx, DATA_TOOLS_SETTINGS_NAMESPACE, Config, config, {
-    setSource: (source) => {
-      current = source
-    },
-    onChange: () => {
-      rebuild(current())
-    },
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, DATA_TOOLS_SETTINGS_NAMESPACE, Config, config, {
+      setSource: (source) => {
+        current = source
+      },
+      onChange: () => {
+        rebuild(current())
+      },
+    })
   })
 
   rebuild(config)

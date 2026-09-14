@@ -1,6 +1,6 @@
 {
   "name": "@xwl12/dsh-data-tools",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Read-only MySQL tooling for DeepSeek Harness: connection introspection, schema discovery, and guarded SELECT queries so the agent can see the database before writing code.",
   "type": "module",
   "main": "lib/index.js",
@@ -56,16 +56,16 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-credentials": "0.1.1-rc.1",
-    "@deepseek-ai/dsh-settings": "0.1.1-rc.1",
-    "@deepseek-ai/dsh-tools": "0.1.1-rc.1",
+    "@deepseek-ai/dsh-credentials": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-settings": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
     "react": "^18.2.0"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
-    "@deepseek-ai/dsh-credentials": "0.1.1-rc.1",
-    "@deepseek-ai/dsh-settings": "0.1.1-rc.1",
-    "@deepseek-ai/dsh-tools": "0.1.1-rc.1",
+    "@deepseek-ai/dsh-credentials": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-settings": "0.1.5-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.5-rc.2",
     "@types/node": "^24.0.0",
     "@types/pg": "^8.11.0",
     "@types/react": "~18.3.1",
