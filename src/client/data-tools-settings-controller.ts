@@ -1,12 +1,13 @@
-/** The data-tools settings page's staged form over the `data-tools` settings namespace. */
+/** The data-tools configuration page's staged form over the `data-tools` profile entry. */
 
 import { CardForm, numberField, type CardActions, type CardFieldSpec, type CardFieldState, type CardShell } from './card-form.ts'
-import type { SettingsScope, SnapshotStore } from './host.ts'
+import type { SettingsForm, SnapshotStore } from './host.ts'
 
 /**
- * Namespace of the data-tools plugin. Spelled here rather than imported: the
- * browser half must not pull the Node half (mysql2 and friends) into the
- * bundle, and the plugin that owns the namespace spells the same value.
+ * Profile entry id of the data-tools plugin. Spelled here rather than imported:
+ * the browser half must not pull the Node half (mysql2 and friends) into the
+ * bundle, and the plugin that owns the entry spells the same value. The
+ * configuration form is addressed by this entry id.
  */
 export const DATA_TOOLS_NS = 'data-tools'
 
@@ -20,7 +21,7 @@ export interface DataToolsSettings {
   connections?: unknown[]
 }
 
-/** What the data-tools settings page renders. */
+/** What the data-tools configuration page renders. */
 export interface DataToolsSettingsState extends CardShell {
   /** Default result row cap. */
   defaultMaxRows: CardFieldState
@@ -30,7 +31,7 @@ export interface DataToolsSettingsState extends CardShell {
   connections: CardFieldState
 }
 
-/** The registration-side face the data-tools settings page's slot entry injects. */
+/** The registration-side face the data-tools configuration page's slot entry injects. */
 export interface DataToolsSettingsFace extends CardActions {
   hooks: {
     /** Page snapshot bound by the renderer as useDataToolsSettings. */
@@ -47,8 +48,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * A JSON-array field: the connections array pretty-printed as draft text. An
  * empty draft clears the field; a draft that is not a JSON array of plain
  * objects blocks the save (semantic validation — required fields, the kind
- * discriminator — stays with the Host schema).
- * @param field - field name inside the namespace section.
+ * discriminator — stays with the host schema and with the plugin's own
+ * per-kind checks).
+ * @param field - field name inside the entry's config.
  * @returns the field's conversion spec.
  */
 export function jsonArrayField(field: string): CardFieldSpec {
@@ -67,25 +69,21 @@ export function jsonArrayField(field: string): CardFieldSpec {
       if (!Array.isArray(parsed) || !parsed.every(isRecord)) return undefined
       return { kind: 'set', value: parsed }
     },
-    // The Host redacts connection `password` (role('secret')) before serving
-    // the user layer back to the client, so the save read-back is verified
-    // against the same redacted shape — `password` stripped from every entry.
-    redact: (value) => (value as unknown[]).map((entry) => {
-      if (!isRecord(entry)) return entry
-      const { password: _password, ...rest } = entry
-      return rest
-    }),
+    // The host redacts connection `password` (role('secret')) before serving the
+    // value back, so the array a page renders never carries a stored plaintext
+    // secret and saving replaces the whole array — documented on the field hint,
+    // which points users at `passwordRef` instead.
   }
 }
 
-/** Bridges the `data-tools` scope onto the settings page's staged form. */
+/** Bridges the `data-tools` entry's configuration form onto the page's staged form. */
 export class DataToolsSettingsController {
   private readonly form: CardForm<DataToolsSettings>
   private readonly store: SnapshotStore<DataToolsSettingsState>
 
-  /** @param scope - the bound settings scope for the `data-tools` namespace. */
-  constructor(scope: SettingsScope<DataToolsSettings>) {
-    this.form = new CardForm(scope, [
+  /** @param form - the shared configuration form for the `data-tools` entry. */
+  constructor(form: SettingsForm<DataToolsSettings>) {
+    this.form = new CardForm(form, [
       numberField('defaultMaxRows'),
       numberField('defaultTimeoutMs'),
       jsonArrayField('connections'),
@@ -103,10 +101,15 @@ export class DataToolsSettingsController {
   }
 
   /**
-   * Build the face the settings page's slot registration injects.
+   * Build the face the configuration page's slot registration injects.
    * @returns the page's snapshot and its form actions.
    */
   inject(): DataToolsSettingsFace {
     return { hooks: { dataToolsSettings: this.store }, ...this.form.actions() }
+  }
+
+  /** Release the entry form's subscription; the page owner calls this from its effect. */
+  dispose(): void {
+    this.form.dispose()
   }
 }

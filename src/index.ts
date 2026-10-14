@@ -15,11 +15,14 @@
  * sql/postgres.ts — add another engine the same way); key/value and document
  * stores get their own tool families under redis/ and elasticsearch/.
  *
- * Configuration: the patch-layer entry config is the composition `base` of a
- * settings namespace (dsh-settings). User overrides land in the settings
- * document (settings.yaml) and apply live — the resolved-connection map is
- * rebuilt on every committed change, so the tools always see the authoritative
- * section. Without a settings service the entry config stays authoritative.
+ * Configuration: the three fields the browser page edits are declared
+ * `.volatile()` on the Config schema, so the Loader hands `apply` one stable
+ * reference per field (`config.connections.get()`). A save from the plugin's own
+ * page persists into the active profile's Cordis patch and is committed into
+ * those references in place — the plugin is not restarted — so every tool call
+ * re-reads the references and a committed edit applies from the next call on.
+ * Components that need no live edits (the tools' connection lookups) run the
+ * same re-read behind `refresh()`.
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -50,17 +53,20 @@ const SUPPORTED_KINDS: readonly string[] = [
   'elasticsearch',
 ]
 
-/** Settings namespace carrying this plugin's user-editable section. */
-export const DATA_TOOLS_SETTINGS_NAMESPACE = 'data-tools'
+/**
+ * Profile entry id carrying this plugin's config. It is BOTH the Loader entry
+ * that `cordis.patch.yml` inserts and the namespace the browser half addresses:
+ * in the current harness, configuration forms are keyed by the entry id, so the
+ * two must stay spelled the same.
+ */
+export const DATA_TOOLS_ENTRY_ID = 'data-tools'
 
-/** Connection object schema for one backend kind (discriminated on `kind`). */
 /**
  * Connection object schema: ONE flat object for every kind (not a
- * discriminated union) because the settings host's secret redaction walks
- * only object/dict/array containers — a `role('secret')` field inside a union
- * branch is served back verbatim, breaking save verification and leaking the
- * secret to the settings page. Per-kind validation and defaults live in
- * resolveConnections.
+ * discriminated union) because the settings host's secret redaction walks only
+ * object/dict/array containers — a `role('secret')` field inside a union branch
+ * is served back verbatim, leaking the secret to the configuration page.
+ * Per-kind validation and defaults live in resolveConnections.
  */
 const connectionSchema = Schema.object({
   name: Schema.string().required()
@@ -93,14 +99,42 @@ const connectionSchema = Schema.object({
     .description('Per-connection statement/command/request timeout in ms; falls back to `defaultTimeoutMs`.'),
 })
 
-export const Config: Schema<PluginConfig> = Schema.object({
-  connections: Schema.array(connectionSchema).required()
+/**
+ * Config schema. Every field the plugin's own page edits is `.volatile()`: the
+ * Loader then resolves it to a stable reference (`config.connections.get()`)
+ * instead of a plain value, and commits a saved edit into that reference in
+ * place without restarting the plugin. `resolveConnections` is the only consumer
+ * and reads the plain snapshots `readConfig` materializes.
+ */
+export const Config = Schema.object({
+  connections: Schema.array(connectionSchema).required().volatile()
     .description('Named data-source connections the db_* / redis_* / es_* tools operate on (MySQL / PostgreSQL / Redis / Elasticsearch).'),
-  defaultMaxRows: Schema.number().default(100)
+  defaultMaxRows: Schema.number().default(100).volatile()
     .description('Result cap applied when a connection sets none (rows for SQL, keys/items for Redis, hits/fields for Elasticsearch).'),
-  defaultTimeoutMs: Schema.number().default(10_000)
+  defaultTimeoutMs: Schema.number().default(10_000).volatile()
     .description('Statement/command/request timeout in ms applied when a connection sets none.'),
 })
+
+/** The config the Loader hands to `apply`: `.volatile()` fields arrive as references. */
+export type DataToolsConfig = ReturnType<typeof Config>
+
+/**
+ * Read the volatile references into the plain config `resolveConnections` takes.
+ * The snapshots are frozen values with a stable identity until the next save, so
+ * two reads of an unchanged config compare equal by reference.
+ * @param config - loader-facing config of this plugin.
+ * @returns one plain config snapshot.
+ */
+function readConfig(config: DataToolsConfig): PluginConfig {
+  return {
+    // The schema guarantees these three are `volatile()` fields, so the Loader
+    // always resolves them to references; the schema's inferred type already
+    // says so and these reads stay type-checked.
+    connections: config.connections.get(),
+    defaultMaxRows: config.defaultMaxRows.get(),
+    defaultTimeoutMs: config.defaultTimeoutMs.get(),
+  }
+}
 
 /** One resolved pass over the config: sql connections plus key/value & document stores. */
 interface ResolvedConnectionSets {
@@ -199,19 +233,46 @@ function resolveConnections(source: PluginConfig, supportedKinds: readonly strin
   return { sql, redis, elasticsearch }
 }
 
-export function apply(ctx: Context, config: PluginConfig) {
+export function apply(ctx: Context, config: DataToolsConfig) {
   const sqlConnections = new Map<string, ResolvedSqlConnection>()
   const redisConnections = new Map<string, ResolvedRedisConnection>()
   const esConnections = new Map<string, ResolvedElasticsearchConnection>()
   const dialects = new Map(DIALECTS.map((dialect) => [dialect.kind, dialect]))
 
   /**
-   * Swap the shared connection maps to `next` once they fully validated. Tools
-   * close over the map objects, so this one in-place swap makes a committed
-   * settings change visible to every subsequent tool execution.
+   * The config the maps were last resolved from. A volatile reference keeps its
+   * identity until a save replaces its value, so comparing the three references
+   * is what makes `refresh` cheap enough to run before every tool call.
    */
-  const rebuild = (source: PluginConfig): void => {
-    const next = resolveConnections(source, SUPPORTED_KINDS)
+  let resolvedFrom: PluginConfig | undefined
+
+  /**
+   * Re-resolve the connections when a save changed the config, swapping the
+   * shared maps in place. Tools close over the map objects, so this one swap
+   * makes a committed edit visible to every later execution.
+   *
+   * The Host already refused every edit the Config schema rejects; the checks
+   * left here are ours alone (unsupported kind, duplicate name, a kind that
+   * requires `user`). An edit that fails them keeps the previous connections —
+   * one bad field must not take every tool down — and says so in the log.
+   */
+  const refresh = (): void => {
+    const source = readConfig(config)
+    if (resolvedFrom !== undefined
+      && resolvedFrom.connections === source.connections
+      && resolvedFrom.defaultMaxRows === source.defaultMaxRows
+      && resolvedFrom.defaultTimeoutMs === source.defaultTimeoutMs) return
+    // Record the source before resolving: a refused edit is retried on the next
+    // save, not on every tool call.
+    resolvedFrom = source
+    let next: ResolvedConnectionSets
+    try {
+      next = resolveConnections(source, SUPPORTED_KINDS)
+    } catch (error) {
+      ctx.logger.warn('data-tools: the saved configuration failed the per-kind checks below; keeping the previous connections')
+      ctx.logger.warn(error)
+      return
+    }
     sqlConnections.clear()
     for (const [name, connection] of next.sql) sqlConnections.set(name, connection)
     redisConnections.clear()
@@ -220,25 +281,21 @@ export function apply(ctx: Context, config: PluginConfig) {
     for (const [name, connection] of next.elasticsearch) esConnections.set(name, connection)
   }
 
-  // The patch-layer entry config is the composition `base`; user overrides
-  // land in the settings document and apply live. Without a settings service
-  // the entry config stays authoritative (current stays the entry thunk), so
-  // the section rides a scoped inject rather than a hard dependency: a host
-  // with no settings provider simply never runs the callback.
-  let current: () => PluginConfig = () => config
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(ctx, DATA_TOOLS_SETTINGS_NAMESPACE, Config, config, {
-      setSource: (source) => {
-        current = source
-      },
-      onChange: () => {
-        rebuild(current())
-      },
-    })
-  })
+  refresh()
+  registerSqlTools(ctx, { connections: sqlConnections, dialects, refresh })
+  registerRedisTools(ctx, { connections: redisConnections, refresh })
+  registerElasticsearchTools(ctx, { connections: esConnections, refresh })
 
-  rebuild(config)
-  registerSqlTools(ctx, { connections: sqlConnections, dialects })
-  registerRedisTools(ctx, { connections: redisConnections })
-  registerElasticsearchTools(ctx, { connections: esConnections })
+  // The browser half ships this plugin's own configuration page, so a composed
+  // settings service must not also generate one from the schema. The policy is
+  // registered against THIS plugin's fiber — the identity `describe()`
+  // attributes it by — and disposal releases it again. The child inject stays
+  // optional: a host without dsh-settings simply never runs the callback, and
+  // the tools keep reading the patch layer's values.
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.effect(
+      () => settingsCtx.settings.configure({ auto: false }, ctx.fiber),
+      'data-tools: own configuration page policy',
+    )
+  })
 }

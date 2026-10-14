@@ -1,4 +1,4 @@
-/** The data-tools settings page: read-only database connections the agent may query. */
+/** The data-tools configuration page: read-only database connections the agent may query. */
 
 import type { CSSProperties } from 'react'
 import { useEffect } from 'react'
@@ -6,8 +6,10 @@ import { JsonField, ValueField } from './fields.tsx'
 import type { DataToolsSettingsFace, DataToolsSettingsState } from './data-tools-settings-controller.ts'
 import type { LocaleText } from './host.ts'
 
-/** Props the renderer binds for the data-tools settings page. */
+/** Props the renderer binds for the data-tools configuration page. */
 export interface DataToolsSettingsSectionProps extends DataToolsSettingsFace {
+  /** Which view the Plugins page asks for: the row's one-liner, or the form with its save control. */
+  view: 'summary' | 'page'
   /** Localized text for the data-tools copy. */
   t: LocaleText
   /** Bound snapshot selector, provided by the renderer from the inject face hooks. */
@@ -32,6 +34,13 @@ const introStyle: CSSProperties = {
   margin: 0,
   fontSize: 13,
   color: 'var(--dsw-alias-label-tertiary)',
+}
+
+const summaryStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 13,
+  lineHeight: 1.5,
+  color: 'var(--dsw-alias-label-secondary)',
 }
 
 const unavailableStyle: CSSProperties = {
@@ -93,21 +102,23 @@ const saveButtonStyle: CSSProperties = {
 }
 
 /**
- * Render the data-tools settings page.
- * @param props - locale copy, the form snapshot, and its actions.
- * @returns the page.
+ * Render the data-tools configuration page.
+ * @param props - the asked-for view, locale copy, the form snapshot, and its actions.
+ * @returns the row's one-liner, or the page's form.
  */
 export function DataToolsSettingsSection(props: DataToolsSettingsSectionProps) {
-  const { t } = props
+  const { t, view } = props
   const state = props.useDataToolsSettings(snapshot => snapshot)
-  const disabled = !state.writable
-  const blocked = !state.dirty || state.invalid || state.saving
   // A landed save reports success; the banner clears itself after a moment.
+  // Every hook runs before the view branch: React requires a stable hook order.
   useEffect(() => {
     if (!state.saved) return
     const timer = setTimeout(() => { props.clearSaved() }, 3000)
     return () => { clearTimeout(timer) }
   }, [state.saved, props.clearSaved])
+  if (view === 'summary') return <p style={summaryStyle}>{t('dataToolsSummary')}</p>
+  const disabled = !state.writable
+  const blocked = !state.dirty || state.invalid || state.saving
   return (
     <div style={sectionStyle}>
       <h2 style={headingStyle}>{t('dataToolsTitle')}</h2>

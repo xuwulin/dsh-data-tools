@@ -16,6 +16,12 @@ import { formatRows, resolvePassword } from '../util.js'
 /** Everything the redis_* tools need to find connections. */
 export interface RedisToolkit {
   connections: ReadonlyMap<string, ResolvedRedisConnection>
+  /**
+   * Re-read the plugin's volatile config and re-resolve the connections when a
+   * save changed it. Cheap when nothing changed (reference comparison), so every
+   * tool entry point calls it before reading `connections`.
+   */
+  refresh: () => void
 }
 
 /** Cap one scan/read call; the tool argument is clamped to the connection cap. */
@@ -70,6 +76,7 @@ async function withRedis(
 /** Register the four redis_* tools. */
 export function registerRedisTools(ctx: Context, toolkit: RedisToolkit): void {
   const requireConnection = (name: string): ResolvedRedisConnection => {
+    toolkit.refresh()
     const connection = toolkit.connections.get(name)
     if (connection === undefined) {
       const known = [...toolkit.connections.keys()].join(', ') || '(none configured)'
@@ -89,6 +96,7 @@ export function registerRedisTools(ctx: Context, toolkit: RedisToolkit): void {
       render: (_args, value) => [{ type: 'text', text: value }],
     },
     async execute() {
+      toolkit.refresh()
       if (toolkit.connections.size === 0) {
         return 'No Redis connections configured. Add a `kind: "redis"` connection to the plugin config.'
       }

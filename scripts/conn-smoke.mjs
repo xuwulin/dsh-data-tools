@@ -1,17 +1,23 @@
-// Dev-only connectivity smoke test for every configured connection in
-// ~/.dsh/settings.yaml (the same config the Data sources settings page serves).
+// Dev-only connectivity smoke test for the connections this deployment
+// actually resolves. In the current harness the plugin's configuration page
+// saves into the ACTIVE PROFILE's Cordis patch (not `$DSH_HOME/settings.yaml`,
+// which earlier releases used), so the layers below are composed the way the
+// loader composes them, lowest first:
+//
+//   1. this repo's cordis.patch.yml  (the bundle's composition base)
+//   2. the active profile's cordis.patch.yml  (where a Configure-page save lands)
+//   3. this repo's dev.patch.yml  (the CLI --patch overlay used in development)
+//   4. any extra `--patch <file>` given on the command line
+//
 // Uses the same drivers the plugin uses (mysql2 / pg / redis /
 // @elastic/elasticsearch) with per-kind probes matching the plugin's own
 // discovery queries. Never prints passwords.
 //
-// The settings.yaml connections block is parsed with a small purpose-built
-// parser (no yaml dependency): the file's data-tools section is a list of
-// `- name: ...` blocks with plain scalar fields, which this handles exactly.
-//
-// Usage: node scripts/conn-smoke.mjs
+// Usage: node scripts/conn-smoke.mjs [--profile <name>] [--patch <file> ...]
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import mysql from 'mysql2/promise'
 import pg from 'pg'
 import { createClient } from 'redis'
@@ -20,57 +26,122 @@ import { Client as EsClient } from '@elastic/elasticsearch'
 const TIMEOUT = 10_000
 
 /**
- * Extract the `data-tools` connections array from the settings.yaml text.
- * The file is split into top-level sections by column-0 keys; the block under
- * `data-tools:` is then parsed into `- name:` entries with scalar fields.
- * @param text - raw settings.yaml.
- * @returns one plain object per `- name:` block under `data-tools:`.
+ * Coerce one plain YAML scalar the patch files use.
+ * @param raw - scalar text after the colon.
+ * @returns the coerced value; undefined for the empty/null spellings.
  */
-function parseConnections(text) {
-  const lines = text.split(/\r?\n/)
-  const topKeys = []
-  lines.forEach((line, index) => {
-    if (/^[A-Za-z0-9_-]+:/.test(line)) topKeys.push(index)
-  })
-  const start = topKeys.findIndex(index => lines[index].startsWith('data-tools:'))
-  if (start === -1) return []
-  const end = start + 1 < topKeys.length ? topKeys[start + 1] : lines.length
-  const body = lines.slice(start, end).join('\n')
+function scalar(raw) {
+  let value = raw.trim()
+  if (value.length > 1 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+    value = value.slice(1, -1)
+  } else if (value === 'true') return true
+  else if (value === 'false') return false
+  else if (/^-?\d+$/.test(value)) return Number(value)
+  else if (value === '' || value === 'null' || value === '~') return undefined
+  return value
+}
 
-  const blocks = [...body.matchAll(/^\s*-\s*name:\s*(.+)$/gm)]
-  const connections = []
-  for (let i = 0; i < blocks.length; i += 1) {
-    const blockStart = blocks[i].index
-    const blockEnd = i + 1 < blocks.length ? blocks[i + 1].index : body.length
-    const block = body.slice(blockStart, blockEnd)
-    const entry = { name: blocks[i][1].trim() }
-    for (const match of block.matchAll(/^\s*(\w[\w-]*):\s*(.*?)\s*$/gm)) {
-      const key = match[1]
-      let value = match[2]
-      if (key === 'name') continue
-      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1)
-      } else if (value === 'true') value = true
-      else if (value === 'false') value = false
-      else if (/^-?\d+$/.test(value)) value = Number(value)
-      else if (value === '' || value === 'null' || value === '~') value = undefined
-      entry[key] = value
-    }
-    connections.push(entry)
+/** Column index of the first non-space character. */
+const indentOf = (line) => line.length - line.trimStart().length
+
+/**
+ * Split a block into its `- item` groups, keeping each item's own lines.
+ * @param lines - block lines, already dedented to the block's own base.
+ * @returns one array of lines per list item.
+ */
+function splitItems(lines) {
+  const items = []
+  for (const line of lines) {
+    if (/^\s*-\s/.test(line) || items.length === 0) items.push([line])
+    else items[items.length - 1].push(line)
   }
-  return connections
+  return items
 }
 
-const settingsPath = path.join(os.homedir(), '.dsh', 'settings.yaml')
-if (!fs.existsSync(settingsPath)) {
-  console.log(`no settings.yaml at ${settingsPath}`)
-  process.exit(1)
+/** Read `key: value` scalars out of one item's lines. */
+function itemFields(lines) {
+  const fields = {}
+  for (const line of lines) {
+    const match = /^\s*(-\s*)?([\w-]+):\s*(.*)$/.exec(line)
+    if (match) fields[match[2]] = scalar(match[3])
+  }
+  return fields
 }
-const connections = parseConnections(fs.readFileSync(settingsPath, 'utf8'))
+
+/**
+ * Read the `data-tools` entry's `config` block out of one patch file.
+ * Both spellings the loader accepts are handled: a bundle patch's nested
+ * `- insert: / - id: data-tools`, and a profile patch's id-targeted
+ * `- id: data-tools`.
+ * @param text - raw patch file.
+ * @returns the entry's config keys, or an empty object when the file has none.
+ */
+function configOf(text) {
+  const lines = text.split(/\r?\n/)
+  const idIndex = lines.findIndex(line => /^\s*(-\s*)?id:\s*['"]?data-tools['"]?\s*$/.test(line))
+  if (idIndex === -1) return {}
+  const idIndent = indentOf(lines[idIndex]) + (/^\s*-\s/.test(lines[idIndex]) ? 2 : 0)
+  const configIndex = lines.findIndex((line, index) => index > idIndex
+    && line.trim() === 'config:'
+    && indentOf(line) >= idIndent)
+  if (configIndex === -1) return {}
+  const configIndent = indentOf(lines[configIndex])
+
+  // Everything deeper than `config:` belongs to the entry, up to the next line
+  // at or above that level.
+  const body = []
+  for (let index = configIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (line.trim() === '' || line.trimStart().startsWith('#')) continue
+    if (indentOf(line) <= configIndent) break
+    body.push(line)
+  }
+
+  const config = {}
+  const connectionsAt = body.findIndex(line => line.trim() === 'connections:')
+  if (connectionsAt !== -1) {
+    const connectionsIndent = indentOf(body[connectionsAt])
+    const section = body.slice(connectionsAt + 1).filter(line => indentOf(line) > connectionsIndent)
+    config.connections = splitItems(section).map(itemFields)
+  }
+  for (const line of body) {
+    const match = /^([\w-]+):\s*(.*)$/.exec(line.trim())
+    if (match && match[1] !== 'connections') config[match[1]] = scalar(match[2])
+  }
+  return config
+}
+
+/** Compose the layers' `data-tools` configs, later layers overriding earlier ones field by field. */
+function resolveConfig(layerPaths) {
+  let resolved = {}
+  for (const layerPath of layerPaths) {
+    if (!fs.existsSync(layerPath)) continue
+    resolved = { ...resolved, ...configOf(fs.readFileSync(layerPath, 'utf8')) }
+  }
+  return resolved
+}
+
+const argv = process.argv.slice(2)
+const flag = (name, fallback) => {
+  const at = argv.indexOf(name)
+  return at === -1 ? fallback : argv[at + 1]
+}
+const extraPatches = argv.flatMap((value, index) => (value === '--patch' && argv[index + 1] !== undefined ? [argv[index + 1]] : []))
+const profile = flag('--profile', process.env.DSH_PROFILE ?? 'web')
+const profileDir = process.env.DSH_PROFILE_DIR ?? path.join(os.homedir(), '.dsh', 'profiles', profile)
+const layers = [
+  fileURLToPath(new URL('../cordis.patch.yml', import.meta.url)),
+  path.join(profileDir, 'cordis.patch.yml'),
+  fileURLToPath(new URL('../dev.patch.yml', import.meta.url)),
+  ...extraPatches,
+]
+const config = resolveConfig(layers)
+const connections = Array.isArray(config.connections) ? config.connections : []
 if (connections.length === 0) {
-  console.log('no data-tools connections parsed from settings.yaml')
+  console.log(`no data-tools connections found in: ${layers.join(', ')}`)
   process.exit(1)
 }
+console.log(`connections from ${layers.filter(layer => fs.existsSync(layer)).join(' -> ')}`)
 
 const passwordOf = (c) => {
   if (c.passwordRef !== undefined) {
@@ -175,6 +246,8 @@ async function probeEs(c) {
 const probes = { mysql: probeMysql, postgres: probePostgres, redis: probeRedis, elasticsearch: probeEs }
 let failed = 0
 for (const c of connections) {
+  // The plugin's Config schema defaults the discriminator, and so does this script.
+  c.kind ??= 'mysql'
   const label = `${c.name} [${c.kind}] ${c.host}:${c.port}`
   const probe = probes[c.kind]
   if (probe === undefined) {

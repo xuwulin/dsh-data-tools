@@ -2,8 +2,12 @@
  * Local structural types for the services the web shell injects into a client
  * plugin. The data-tools browser half imports nothing from the dsh client
  * packages — everything arrives through `ctx.slots` / `ctx.locale` /
- * `ctx.settingsScope` and React, so the client bundle stays self-contained and
+ * `ctx.configForms` and React, so the client bundle stays self-contained and
  * the published package has no client-package dependency to install.
+ *
+ * The shapes below mirror the current web client's public services
+ * (`dsh-client-ui-settings`' entry form, `dsh-client-ui-slots`' registrations);
+ * keep them in step when a harness release changes those services.
  */
 
 /** A snapshot store: one current value, stable reference between changes. */
@@ -30,27 +34,53 @@ export function createSnapshotStore<T>(initial: T): SnapshotStore<T> {
   }
 }
 
-/** Snapshot of one bound settings namespace as the host serves it. */
-export interface SettingsScopeSnapshot<T> {
-  status: 'ready' | 'loading' | 'unavailable'
+/** One path-addressed edit an entry form writes; one save sends them atomically. */
+export type SettingsPathOp =
+  | { op: 'set'; path: readonly string[]; value: unknown }
+  | { op: 'unset'; path: readonly string[] }
+
+/** Snapshot of one profile entry's configuration form as the host serves it. */
+export interface SettingsFormSnapshot<T> {
+  /** `loading` until the first accepted section, `ready` while one stands, `unavailable` when the entry is not served. */
+  status: 'loading' | 'ready' | 'unavailable'
+  /** Last accepted configuration; undefined before the first accepted read. */
+  value: T | undefined
+  /** Composition layer `value` resolves over: what a field reverts to once cleared. */
+  base: unknown
+  /** Raw user layer as stored; a field's PRESENCE here is what marks it overridden. */
+  user: unknown
+  /** Revision fencing the next write; undefined before the first host view. */
+  revision: number | undefined
+  /** Whether the host document accepts writes. */
   writable: boolean
-  value?: T
-  base?: T
-  user?: T
-  revision?: number
+  /** `host` syncs with the profile patch; `memory` keeps a remote browser process-local. */
+  mode: 'host' | 'memory'
 }
 
-/** A bound settings namespace: reads, observation, and field-level writes. */
-export interface SettingsScope<T> {
-  getSnapshot(): SettingsScopeSnapshot<T>
+/**
+ * One profile entry's configuration form, as `ctx.configForms.get(entryId)`
+ * returns it: the accepted values plus the one atomic, revision-fenced write
+ * every editor of that entry shares.
+ */
+export interface SettingsForm<T> {
+  getSnapshot(): SettingsFormSnapshot<T>
   subscribe(listener: () => void): () => void
-  set(field: string, value: unknown): Promise<void>
-  unset(field: string): Promise<void>
+  set(field: string, value: unknown): Promise<boolean>
+  unset(field: string): Promise<boolean>
+  mutate(ops: readonly SettingsPathOp[], expectedRevision?: number): Promise<boolean>
 }
 
-/** Settings-scope binder exposed as `ctx.settingsScope`. */
-export interface SettingsScopeBinder {
-  bind<T>(spec: { namespace: string }): SettingsScope<T>
+/** The settings domain's base service, exposed as `ctx.configForms`. */
+export interface ConfigFormsService {
+  /** @param entryId - unique profile entry id whose config the form edits. */
+  get<T>(entryId: string): SettingsForm<T>
+  /**
+   * Keep a registration alive while the host serves any of some entries.
+   * @param namespaces - profile entry ids the registration follows.
+   * @param register - registers the contribution; returns its disposer.
+   * @returns the disposer ending the watch and any live registration.
+   */
+  whileServed(namespaces: readonly string[], register: (served: ReadonlySet<string>) => () => void): () => void
 }
 
 /** Localized text function. */
@@ -65,16 +95,25 @@ export interface LocaleService {
 /** One slot registration option set (the fields this bundle reads back). */
 export interface SlotEntryOptions {
   name: string
-  id: string
-  order: number
-  label: () => string
-  locale: string
-  inject: () => unknown
+  /** Entry id, for a list slot. */
+  id?: string
+  /** Entry key, for a keyed slot (`<package name>#<row id>` for a bundle row). */
+  key?: string
+  order?: number
+  label?: () => string
+  locale?: string
+  inject?: () => unknown
 }
 
 /** Slot registry service slice this bundle uses. */
 export interface SlotsService {
-  inject(slot: string, factory: () => void): void
+  /**
+   * Register one contribution into a slot.
+   * @param slot - the slot's key.
+   * @param factory - builds the registration when the slot is available.
+   * @returns the disposer that withdraws the contribution.
+   */
+  inject(slot: string, factory: () => void): () => void
   register(options: SlotEntryOptions, component: unknown): void
 }
 
@@ -82,18 +121,6 @@ export interface SlotsService {
 export interface ClientContext {
   slots: SlotsService
   locale: LocaleService
-  settingsScope: SettingsScopeBinder
+  configForms: ConfigFormsService
   effect(fn: () => (() => void) | void, label: string): void
-}
-
-/**
- * The renderer binds one `use<Name>` hook per `hooks` key of an inject face,
- * and spreads the face's action members onto the component props.
- */
-export interface DataToolsSettingsInjected {
-  hooks: { dataToolsSettings: SnapshotStore<unknown> }
-  edit: (field: string, text: string) => void
-  resetField: (field: string) => void
-  save: () => void
-  discard: () => void
 }

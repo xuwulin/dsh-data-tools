@@ -37,7 +37,7 @@ dsh plugin --profile web add @xwl12/dsh-data-tools@latest
 
 ## 配置
 
-配置位于 `data-tools` settings 命名空间，在 Web GUI 的 **设置 → 数据源** 里实时编辑。页面上的**连接（JSON）**字段对应 `connections` 数组——每个 JSON 对象代表一个数据库连接：
+配置在插件自己的**配置页**上：Web GUI 打开 **插件（Plugins）→ `@xwl12/dsh-data-tools` → 配置**，或者直接编辑 profile patch 里的 `data-tools` 行（见下文「配置的三个来源」）。页面上的**连接（JSON）**字段对应 `connections` 数组——每个 JSON 对象代表一个数据库连接：
 
 ```json
 [
@@ -71,7 +71,7 @@ dsh plugin --profile web add @xwl12/dsh-data-tools@latest
 | `database` | string（mysql/postgres）或 number（redis） | 无 / `0` | mysql：可选默认库（省略表示 Agent 可通过 `db_list_databases` 看到该账号所有库）。postgres：要连接的数据库（省略用服务器默认）。redis：逻辑库**索引**（默认 0）。 |
 | `user` | string | mysql/postgres 必填 | 数据库账号（建议只读权限）；redis 为可选 ACL 用户名（Redis 6+）；elasticsearch 为可选 basic-auth 用户名。 |
 | `passwordRef` | string | 无 | 密码引用：环境变量名，每次操作通过 dsh 凭证 seam 解析（环境变量或 dsh 的 `.env` 文件）。优先于 `password`，机密不进配置/日志。 |
-| `password` | string | 无 | 明文密码回退，仅临时本地用。`role('secret')`：传输脱敏、绝不回显（设置页 write-only）。 |
+| `password` | string | 无 | 明文密码回退，仅临时本地用。`role('secret')`：传输脱敏、绝不回显（配置页 write-only）。 |
 | `charset` | string | `'utf8mb4'` | 连接字符集（仅 mysql；其余类型忽略）。 |
 | `ssl` | boolean | `false` | TLS 连接，接受自签名证书（postgres / redis / elasticsearch）。 |
 | `schema` | string | `'public'` | 表工具未传 `database` 参数时的默认 schema（仅 postgres）。 |
@@ -80,7 +80,7 @@ dsh plugin --profile web add @xwl12/dsh-data-tools@latest
 
 > **PostgreSQL 语义**：一个连接对应一个数据库，`db_list_tables` / `db_table_schema` 的列单位是库内的 **schema**。`db_list_databases` 返回所连数据库的非系统 schema；表工具的 `database` 参数实际传 schema 名（缺省回退到连接的 `schema`，默认 `public`）。
 
-**完整示例**（所有字段，设置页 JSON 格式）：
+**完整示例**（所有字段，配置页 JSON 格式）：
 
 ```json
 [
@@ -150,7 +150,7 @@ dsh plugin --profile web add @xwl12/dsh-data-tools@latest
 
 1. **Bundle 默认**——插件自带的 `cordis.patch.yml`（安装即自动生效，组合基线）。该文件本身属开发侧内容，见 [DEVELOP.zh.md](DEVELOP.zh.md)。
 2. **Patch 覆盖层**——profile 的 `cordis.patch.yml` 或 `--patch` 文件：对 `data-tools` 行的 id 定向覆盖（切勿再 `insert` 同名行）。
-3. **设置文档**——`$DSH_HOME` 下的 `settings.yaml`，通过**数据源**设置页（或直接编辑文件）修改，实时生效、无需重启。
+3. **配置页**——在 **插件 → `@xwl12/dsh-data-tools` → 配置** 页保存，会写入当前 profile 的 `cordis.patch.yml`（同一条 id 定向覆盖）。由于 `connections` / `defaultMaxRows` / `defaultTimeoutMs` 声明为 *volatile*，运行中的插件会在下一次工具调用时读到新值——无需重启。
 
 ## 安全约定
 

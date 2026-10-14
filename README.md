@@ -37,7 +37,7 @@ dsh plugin --profile web add @xwl12/dsh-data-tools@latest
 
 ## Configuration
 
-Configuration lives in the `data-tools` settings namespace, edited live from the web GUI: **Settings → Data sources**. The page's **Connections (JSON)** field holds the `connections` array — one JSON object per database connection:
+Configuration lives on the plugin's own **Configure** page: open **Plugins → `@xwl12/dsh-data-tools` → Configure** in the web GUI, or edit the `data-tools` row in a profile patch directly (see *Where configuration can live* below). The page's **Connections (JSON)** field holds the `connections` array — one JSON object per database connection:
 
 ```json
 [
@@ -150,7 +150,7 @@ Configuration lives in the `data-tools` settings namespace, edited live from the
 
 1. **Bundle default** — the package's own `cordis.patch.yml` (applied automatically on install; the composition base). The file itself is a developer concern — see [DEVELOP.md](DEVELOP.md).
 2. **Patch overlays** — the profile's `cordis.patch.yml` or `--patch` files: id-targeted overrides of the `data-tools` row (never `insert` a second row with the same id).
-3. **Settings document** — `settings.yaml` under `$DSH_HOME`, edited via the **Data sources** settings page (or the settings file directly). Applies live — no restart needed.
+3. **The Configure page** — a save from **Plugins → `@xwl12/dsh-data-tools` → Configure** writes the same id-targeted override into the active profile's `cordis.patch.yml`. Because `connections` / `defaultMaxRows` / `defaultTimeoutMs` are declared *volatile*, the running plugin picks the new values up on the next tool call — no restart.
 
 ## Safety contract
 

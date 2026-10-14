@@ -15,11 +15,18 @@ import type { SqlDialect } from './dialect.js'
 export interface SqlToolkit {
   connections: ReadonlyMap<string, ResolvedSqlConnection>
   dialects: ReadonlyMap<string, SqlDialect>
+  /**
+   * Re-read the plugin's volatile config and re-resolve the connections when a
+   * save changed it. Cheap when nothing changed (reference comparison), so every
+   * tool entry point calls it before reading `connections`.
+   */
+  refresh: () => void
 }
 
 /** Register the five db_* tools, all served by the dialects in the toolkit. */
 export function registerSqlTools(ctx: Context, toolkit: SqlToolkit): void {
   const requireConnection = (name: string): ResolvedSqlConnection => {
+    toolkit.refresh()
     const connection = toolkit.connections.get(name)
     if (connection === undefined) {
       const known = [...toolkit.connections.keys()].join(', ') || '(none configured)'
@@ -47,6 +54,7 @@ export function registerSqlTools(ctx: Context, toolkit: SqlToolkit): void {
       render: (_args, value) => [{ type: 'text', text: value }],
     },
     async execute() {
+      toolkit.refresh()
       if (toolkit.connections.size === 0) return 'No connections configured. Add `connections` to the plugin config.'
       return [...toolkit.connections.values()]
         .map((c) => `${c.name}: ${c.kind} ${c.database ?? '(all databases)'} @ ${c.host}:${c.port} (user ${c.user})`)

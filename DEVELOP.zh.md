@@ -19,10 +19,13 @@
 
 | 路径 | 作用 |
 |---|---|
-| `src/index.ts` | 组合根：配置 Schema、连接解析、工具注册、settings 命名空间 |
+| `src/index.ts` | 组合根：配置 Schema（`.volatile()` 字段）、连接解析、工具注册、配置页策略 |
 | `src/sql/` | 方言抽象（`dialect.ts`）、MySQL 实现（`mysql.ts`）、五个 `db_*` 工具（`tools.ts`） |
-| `src/client/` | 浏览器端：**数据源**设置页（React），打包为 `lib/client.js` |
+| `src/client/` | 浏览器端：插件自己的配置页（React），打包为 `lib/client.js` |
 | `scripts/db-smoke.mjs` | 仅开发用的连接冒烟测试（读 `dev.patch.yml`，绝不打印密码） |
+| `scripts/conn-smoke.mjs` | 仅开发用的连接冒烟测试，按组合层（bundle → profile → `dev.patch.yml`）取配置 |
+| `scripts/plugin-smoke.mjs` | 仅开发用的契约测试：volatile 配置热更新、被拒保存的处理、配置页策略注册（不需要 host 和数据库） |
+| `scripts/contract/` | 编译期探针：浏览器端的本地服务类型必须仍然匹配当前 harness 的客户端包 |
 | `cordis.patch.yml` | bundle 默认配置层（安装时自动插入） |
 
 ## bundle 默认配置（`cordis.patch.yml`）
@@ -45,19 +48,30 @@
             passwordRef: DEV_DB_PASSWORD
 ```
 
-这一行是组合 *base*。实际部署通过设置文档（**数据源**设置页，实时写入 `$DSH_HOME/settings.yaml`）或 id 定向的 `--patch` 覆盖层来覆盖它——**切勿**再发一个同 id 的 `insert`：loader 会拒绝重复条目 id（`duplicate loader entry id: data-tools`）。
+这一行是组合 *base*。实际部署从插件自己的**配置页**（**插件 → `@xwl12/dsh-data-tools` → 配置**，保存会写入当前 profile 的 `cordis.patch.yml`）或显式的 id 定向 `--patch` 覆盖层来覆盖它——**切勿**再发一个同 id 的 `insert`：loader 会拒绝重复条目 id（`duplicate loader entry id: data-tools`）。
+
+## 为什么配置字段是 `.volatile()`
+
+`connections`、`defaultMaxRows`、`defaultTimeoutMs` 在 Config Schema 上声明为 `.volatile()`。Loader 会把它们解析成稳定的**引用**而不是普通值，于是：
+
+- `apply(ctx, config)` 拿到的是 `config.connections.get()` / `config.defaultMaxRows.get()` / `config.defaultTimeoutMs.get()`，类型由 Schema 推导（`ReturnType<typeof Config>`）；
+- 配置页的一次保存会**就地提交进这些引用**——插件不重启；`lib/index.js` 的 `refresh()` 在引用身份变化时重新解析连接表，每个工具的入口都会先调用它；
+- Schema 拒绝的保存根本到不了插件；被我们自己的逐类检查拒绝的保存（重名、某类必须给 `user`、不支持的 kind）会保留上一次的连接并记录原因。
+
+配置页本身走 harness 的配置表单服务：用 `ctx.configForms.get('data-tools')` 读值、用 `ctx.configForms.whileServed(['data-tools'], …)` 让页面只在条目被服务时存在，并注册到 Plugins 页的 `plugins.row.config` 槽位，键为 `@xwl12/dsh-data-tools#data-tools`。
 
 ## 构建与类型检查
 
 ```sh
 npm install          # 或 pnpm install
-npm run typecheck
+npm run typecheck    # 后端 + 客户端 + harness 契约探针
 npm run build        # tsc（后端 lib/）+ tsc（客户端类型）+ tsdown（lib/client.js）
+node scripts/plugin-smoke.mjs   # 构建后运行：volatile 配置契约，不需要 host
 ```
 
-`npm run build` 产出两半：Node 半（`lib/index.js`——工具 + settings 注册）和浏览器半（`lib/client.js`——设置页）。`lib/` 被 git 忽略；npm tarball 会携带它（`prepare` 脚本 `npm run build` 会在发布和 git 安装时自动重建）。
+`npm run build` 产出两半：Node 半（`lib/index.js`——工具 + 配置页策略）和浏览器半（`lib/client.js`——配置页）。`lib/` 被 git 忽略；npm tarball 会携带它（`prepare` 脚本 `npm run build` 会在发布和 git 安装时自动重建）。
 
-**版本对齐**：插件把 `@deepseek-ai/dsh-settings`、`dsh-tools`、`dsh-credentials` 锁定在 `0.1.1-rc.1`，与目标 harness 一致。如果对接到其它 rc 版本的 harness，请先同步 peer/dev 依赖——版本不一致时插件会从自己的 `node_modules` 加载不匹配的副本，可能在运行时失败。
+**版本对齐**：插件把 `@deepseek-ai/dsh-settings`、`dsh-tools`、`dsh-credentials` 锁定在 `0.2.0-rc.2`（当前桌面版），并且需要 schemastery `^3.18.4` 才有 `.volatile()`。如果对接到其它 rc 版本的 harness，请先同步 peer/dev 依赖并**优先**跑 `npm run typecheck`：客户端契约探针和后端 Schema 类型会在 API 变动处直接报错，而不是留下一个静默不挂载的页面。
 
 ## 本地安装到 dsh profile
 

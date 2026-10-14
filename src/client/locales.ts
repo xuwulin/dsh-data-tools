@@ -1,8 +1,8 @@
-/** Locale bundles for the data-tools settings page. */
+/** Locale bundles for the data-tools configuration page. */
 
-/** Locale keys the settings page renders. */
+/** Locale keys the configuration page renders. */
 export type DataToolsSettingsLocaleKey =
-  | 'dataToolsTitle' | 'dataToolsIntro' | 'dataToolsUnavailable'
+  | 'dataToolsTitle' | 'dataToolsIntro' | 'dataToolsSummary' | 'dataToolsUnavailable'
   | 'dataToolsMaxRows' | 'dataToolsMaxRowsHint'
   | 'dataToolsTimeoutMs' | 'dataToolsTimeoutMsHint'
   | 'dataToolsConnections' | 'dataToolsConnectionsHint' | 'invalidJson'
@@ -12,6 +12,7 @@ export type DataToolsSettingsLocaleKey =
 export const en: Record<DataToolsSettingsLocaleKey, string> = {
   dataToolsTitle: 'Data sources',
   dataToolsIntro: 'Read-only SQL connections (MySQL / PostgreSQL), Redis, and Elasticsearch connections the agent can query, plus the default limits applied to every call.',
+  dataToolsSummary: 'Read-only MySQL / PostgreSQL / Redis / Elasticsearch connections the agent can query.',
   dataToolsUnavailable: 'The data-tools plugin is not loaded in this deployment; no connections are configured.',
   dataToolsMaxRows: 'Default row cap',
   dataToolsMaxRowsHint: 'Result rows per call when a connection sets none.',
@@ -34,6 +35,7 @@ export const en: Record<DataToolsSettingsLocaleKey, string> = {
 export const zh: Record<DataToolsSettingsLocaleKey, string> = {
   dataToolsTitle: '数据源',
   dataToolsIntro: 'Agent 可以查询的只读 SQL 连接（MySQL / PostgreSQL）、Redis 与 Elasticsearch 连接，以及每次调用适用的默认限制。',
+  dataToolsSummary: 'Agent 可以查询的只读 MySQL / PostgreSQL / Redis / Elasticsearch 连接。',
   dataToolsUnavailable: '本部署未加载 data-tools 插件，未配置任何连接。',
   dataToolsMaxRows: '默认结果行数上限',
   dataToolsMaxRowsHint: '连接未单独设置时，每次调用返回的行数上限。',

@@ -25,8 +25,8 @@ export type ConnectionKind = 'mysql' | 'postgres' | 'redis' | 'elasticsearch'
  * fields. The Config schema stays ONE flat object (not a discriminated union
  * per kind) because the settings host's secret redaction walks only
  * object/dict/array containers — a `role('secret')` field buried in a union
- * branch is served back verbatim, which breaks save verification and leaks the
- * secret to the settings page. Per-kind validation and defaults (ports,
+ * branch is served back verbatim, leaking the secret to the configuration page.
+ * Per-kind validation and defaults (ports,
  * charset, ssl, schema) therefore live in `resolveConnections`, not the schema.
  */
 export interface FlatConnection extends BaseConnection {
@@ -51,8 +51,17 @@ export interface FlatConnection extends BaseConnection {
   schema?: string
 }
 
+/**
+ * The plugin config as plain data — the shape the patch layer writes and the
+ * shape `resolveConnections` reads.
+ *
+ * It is NOT the shape `apply` receives: every field the configuration page edits is
+ * declared `.volatile()`, so the Loader hands `apply` a stable reference per
+ * field and a saved edit replaces the value inside that reference. See
+ * `DataToolsConfig` in `index.ts` for the loader-facing type.
+ */
 export interface Config {
-  connections: FlatConnection[]
+  connections: readonly FlatConnection[]
   defaultMaxRows: number
   defaultTimeoutMs: number
 }
